@@ -1,0 +1,286 @@
+---
+title: "Classifying Naughty and Nice Tweets from Twitter"
+subtitle: "STAT 432 - Project Proposal"
+date: "November 24, 2018"
+author: "Hulya Yigit (hyigit2)"
+bibliography: bibliography.bib
+output: bookdown::pdf_document2
+---
+
+```{r set-options, include = FALSE}
+# Sets default chunk options
+knitr::opts_chunk$set(
+  # Figures/Images will be centered
+  fig.align = "center", 
+  # Code will not be displayed unless `echo = TRUE` is set for a chunk
+  echo = FALSE,
+  # Messages are suppressed
+  message = FALSE,
+  # Warnings are suppressed
+  warning = FALSE
+)
+```
+
+```{r install-and-load-packages, include = FALSE}
+# All packages needed should be loaded in this chunk
+pkg_list = c('knitr', # 'kableExtra',
+             'magrittr', "caret", "bookdown", "rtweet", "text2vec", "tidytext")
+# Determine what packages are NOT installed already.
+to_install_pkgs = pkg_list[!(pkg_list %in% installed.packages()[,"Package"])]
+# Install the missing packages
+if(length(to_install_pkgs)) {
+  install.packages(to_install_pkgs, repos = "https://cloud.r-project.org")
+}
+# Load all packages
+sapply(pkg_list, require, character.only = TRUE)
+```
+
+
+# Introduction
+
+Twitter has a notable problem with users writing mean-spirited messages in the
+form of a "tweet." In 2015, Twitter introduced a "quality filter" that sought 
+to suppress posts that were of "lower-quality content" as described by
+@WP:QualityFilter:2015. The conversation has further progressed to require more
+serious intervention on establishing a healthy medium for conversation described
+in depth by Twitter employees @Twitter:HealthyConversation:2018. As the season
+of well-tidings is upon us, we seek to provide a classification of textual
+content provided by the tweets based on whether the tweet is being naughty or
+nice. 
+
+# Data Overview
+
+```{r create-access-token, include = FALSE, eval = FALSE}
+# Generate an access token to retrieve trump/clinton tweets.
+create_token(
+    app = "trump_client_ag",
+    consumer_key = "mmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+    consumer_secret = "mmmmmmmmmmmmmmmmmmmm",
+    access_token = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+    access_secret = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm")
+```
+
+```{r search-tweet-info, eval = FALSE}
+# Obtain the tweets that match either "Hillary", "Clinton", or "Trump".
+my_tweets = search_tweets(
+  "Hillary|Clinton|Trump", n = 18000, include_rts = FALSE
+)
+
+# Save tweet information to disk.
+saveRDS(my_tweets, file = "data/collected_tweets.rds")
+```
+
+```{r tweet-summary, cache = TRUE}
+# Function based on advice given at: 
+# https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
+process_tweet_text = function(tweet) {
+  gsub("&amp", "", tweet) %>%
+    gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", .) %>%
+    gsub("@\\w+", "", .) %>%
+    gsub("[[:punct:]]", "", .) %>%
+    gsub("[[:digit:]]", "", .) %>%
+    gsub("http\\w+", "", .) %>%
+    gsub("[ \t]{2,}", "", .) %>%
+    gsub("^\\s+|\\s+$", "", .) %>%
+    gsub("\\s*<U\\+\\w+>\\s*", "", .) %>% # Remove unicode...
+    iconv("latin1", "ASCII", "") # Convert whatever unicode symbols remain.
+}
+
+# Read in previously acquired tweets.
+obtained_tweets = readRDS("data/collected_tweets.rds")
+
+# Clean the tweets
+idx = c('text', 'quoted_text', 'retweet_text', 
+        'description', 'quoted_description', 'retweet_description')
+
+obtained_tweets[, idx] = lapply(obtained_tweets[, idx],
+                                FUN = process_tweet_text)
+```
+
+```{r echo = FALSE}
+# Obtain data dimensional information.
+n_obs_tweet = format(nrow(obtained_tweets), big.mark = ",")
+n_var_tweet = format(ncol(obtained_tweets))
+```
+
+In the _R_ programming language by @R:2018, the Twitter Data API [@TwitterAPI]
+can be accessed using the `rtweet` package by @CRAN:rtweet. To fulfill the
+project's goal of classifying tweets as being positive or negative, data was
+obtained by searching for politically charged tweets that contained the words
+"clinton" or "trump". The assembled data set then has **`r n_obs_tweet` tweets**
+with a mixture of original and retweet information across **`r n_var_tweet` variables**.
+The first five tweets captured are shown in Appendix Table \@ref(tab:preview-tweets)
+and the accompanying description of each variable can be found in the subsequent
+Data Codebook section \@ref(codebook-info).
+
+# Overview of Methods 
+
+## Preparation of Data
+
+When working with textual data, there are limitations to the data's immediate
+ability to be used within a model. Prior to fitting the model, the unstructured
+text needs to be converted into format that allows a model to be fit. The
+procedure involves "tokenizing" the text body into individual words. The
+steps to undertake this process are:
+
+1. Remove all unicode symbols from the text.
+1. Remove punctation.
+1. Convert all text to lower-case.
+1. Split apart each word into its own element.
+
+From here, we will create a "bag of words" count by vectorizing a tweet's text 
+under the vocabulary-based Document-Term Matrix (DTM) raw count scheme denoted
+by $\text{tf}(t,d) = f_{t,d}$, where $t$ denotes the term in document $d$ and
+the raw count would be $f_{t,d}$. Organizing data in this fashion, leads to each
+row housing its own tweet and the columns containing the frequency of 
+how often the word or term appears in the tweet. As an example, consider the
+following two tweets: 
+
+> EXCLUSIVE! Trump Set to Indict Hillary Clinton. Other Deep Staters In
+
+> Donald Trump's Phone Call with Hillary Clinton
+
+The DTM for the above two tweets would be:
+
+| Tweet ID | donald | trump | phone | call | with | hillary | clinton | other | deep | staters | in | set | to | indict | exclusive |
+|:--------:|:------:|:-----:|:-----:|:----:|:----:|:-------:|:-------:|:-----:|:----:|:-------:|:--:|:---:|:--:|:------:|:---------:|
+| Tweet 1  |   0    |   1   |   0   |   0  |  0   |    1    |    1    |   1   |  1   |    1    |  1 |  1  |  1 |   1    |     1     |
+| Tweet 2  |   1    |   1   |   1   |   1  |  1   |    1    |    1    |   0   |  0   |    0    |  0 |  0  |  0 |   0    |     0     |
+
+Under the DTM, each word within a tweet will be assigned a sentiment value.
+Word sentiment provides a means for capturing whether the tweet overall is
+positive or negative. For instance, "horrible" would be scored as $-1$ and "great"
+would be given the score of $+1$. If the sentiment score is greater than $0$, 
+the tweet will be considered "positive" or "nice." Otherwise, the tweet will 
+be considered "negative" or "naughty." 
+
+The last step will be to compute the term frequency-inverse document frequency
+(TF-IDF). The TF-IDF uses both the previously defined TF and
+the inverse document frequency (IDF) given by ${\text{idf}}\left( {t,d} \right) = \log \frac{N}{{{n_t}}}$,
+where $N$ is the overall number of documents in the corpus and $n_t$ is the number of documents
+the term appears in. This metric provides an indication of whether a word is 
+common or rare across the corpus. Therefore, words that appear more frequently 
+in one document but not across the corpus are prioritized.
+
+\[{\text{tfidf}}\left( {t,d} \right) = {\text{tf}}\left( {t,d} \right) \cdot {\text{idf}}\left( {t,d} \right)\]
+
+Thus, there are four challenges in the data preparation stage are: obtaining
+tokens, counting the data, assigning a sentiment, and computing the tf-idf.
+
+## Statistical Learning
+
+With the prepared data set, the predictors will be the words under the 
+tf-idf metric and different traits about the user. One problem that arises, is
+the tf-idf metric will be sparse as tweets will have diverse contents. This
+impacts not only the predictors but also how quickly the model can be fit. 
+Therefore, lasso regularization will be used when fitting the logistic regression. 
+To fit the model, the `glmnet` will be used with sentiment being the response and
+the tf-idf metrics alongside other tweet attributes will serve as the predictors.
+Ensuring the model is appropriate, cross-validation will be applied to validate
+it. From there, predictions will be done using a new set of twitter data.
+
+# Appendix
+
+## Sample Data Obtained from Twitter Data API
+
+```{r preview-tweets, echo = FALSE}
+head(obtained_tweets[, 1:5], 5) %>%
+  knitr::kable(caption = "Example of Five Tweets Collected.",
+               format = "latex", booktabs = TRUE, longtable = TRUE) 
+          
+```
+
+## Codebook for Twitter Data API {#codebook-info}
+
+|Variable                  |Description                         |
+|:-------------------------|:-----------------------------------|
+|`user_id`                 | Identification Number of the User  |
+|`status_id`               | Unique Tweet Number                |
+|`created_at`              | Time Tweet Posted on Twitter       |
+|`screen_name`             | Name of the User who Posted Tweet  |
+|`text`                    | Contents of the Tweet              |
+|`source`                  | Device Tweet Sent on               |
+|`display_text_width`      | Number of Characters in the Tweet  |
+|`reply_to_status_id`      | ID of Initial Tweet Responded to   |
+|`reply_to_user_id`        | ID of User Responding to Tweet     |
+|`reply_to_screen_name`    | Username of who Responded to Tweet |
+|`is_quote`                | Direct quotation of tweet          |
+|`is_retweet`              | Whether the tweet was retweeted    |
+|`favorite_count`          | Number of Likes for the Tweet      |
+|`retweet_count`           | Number of Times Tweet Retweeted    |
+|`hashtags`                | Hash Tags used in the tweet        |
+|`symbols`                 | Any special emoji symbols used     |
+|`urls_url`                | URLs referenced in Tweet text      |
+|`urls_t.co`               | Short tweet link                   |
+|`urls_expanded_url`       | Full URL used in Tweet             |
+|`media_url`               | URLs to Media content in Tweet     |
+|`media_t.co`              | Twitter Shortened URL to Media     |
+|`media_expanded_url`      | Full URL to Media                  |
+|`media_type`              | Media Type                         |
+|`ext_media_url`           | External URL of Media              |
+|`ext_media_t.co`          | Shortened External URL of Media    |
+|`ext_media_expanded_url`  | Full External URL of Media         |
+|`ext_media_type`          | External Media Type                |
+|`mentions_user_id`        | ID of Username Referenced          |
+|`mentions_screen_name`    | Username Referenced                |
+|`lang`                    | Language Tweet text is written in  |
+|`quoted_status_id`        | ID of the User that quoted Tweet   |
+|`quoted_text`             | Contents of the quoted Tweet       |
+|`quoted_created_at`       | Time Tweet quoted on Twitter       |
+|`quoted_source`           | Device Tweet quoted on             |
+|`quoted_favorite_count`   | Number of Likes for quoted Tweet   |
+|`quoted_retweet_count`    | Number of Times Quoted Retweet     |
+|`quoted_user_id`          | ID of User quoting the Tweet       |
+|`quoted_screen_name`      | Username of User who quoted Tweet  |
+|`quoted_name`             | Real Name of User who quoted Tweet |
+|`quoted_followers_count`  | Number of the followers of the user quoted tweet|
+|`quoted_friends_count`    | Number of the friends of the user quoted tweet|
+|`quoted_statuses_count`   | Number of times the tweet has been quoted |
+|`quoted_location`         | Location of the user quoted Tweet  |
+|`quoted_description`      | Description of Quoted Tweet        |
+|`quoted_verified`         | Verified geniune quote status      |
+|`retweet_status_id`       | ID Number of the User that retweet Tweet |
+|`retweet_text`            | Text in the Retweet                |
+|`retweet_created_at`      | Date Retweet was Posted            |
+|`retweet_source`          | Originator of the Tweet            |
+|`retweet_favorite_count`  | Number of Likes from the Retweet   |
+|`retweet_retweet_count`   | Number of Retweets from the Retweet|
+|`retweet_user_id`         | ID of User who Retweeted           |
+|`retweet_screen_name`     | Screenname of User who Retweeted   |
+|`retweet_name`            | Real Name of User who Retweeted    |
+|`retweet_followers_count` | Number of Followers of Retweeter   |
+|`retweet_friends_count`   | Number of Friends of Retweeter     |
+|`retweet_statuses_count`  | Number of Statuses of Retweeter    |
+|`retweet_location`        | Location of Retweeter              |
+|`retweet_description`     | Profile Description of Retweeter   |
+|`retweet_verified`        | Tweet Retweeted from Verified User |
+|`place_url`               | URL of Place Tweet Sent From       |
+|`place_name`              | Shortname of Place Tweet Sent From |
+|`place_full_name`         | Full Name of Place Tweet Sent From |
+|`place_type`              | Kind of Place Tweet Sent From      |
+|`country`                 | Name of the Country Tweeted From   |
+|`country_code`            | Code of the Country Tweeted From   |
+|`geo_coords`              | Geocoordinates of Tweet            |
+|`coords_coords`           | More precise Geocoordinates of Tweet |
+|`bbox_coords`             | Bounding Box Geocoordinates of Tweet |
+|`status_url`              | Link to Tweet                      |
+|`name`                    | Real Name of User                  |
+|`location`                | Location of User on Profile        |
+|`description`             | Profile Description of User        |
+|`url`                     | Profile URL                        |
+|`protected`               | Account is Protected by Twitter    |
+|`followers_count`         | Number of Followers                |
+|`friends_count`           | Number of Friends                  |
+|`listed_count`            | Number of Listed Members           |
+|`statuses_count`          | Number of Tweets posted            |
+|`favourites_count`        | Number of Likes                    |
+|`account_created_at`      | Date the account was created on    |
+|`verified`                | User has been vetted               |
+|`profile_url`             | URL of User Profile                |
+|`profile_expanded_url`    | Full URL of User Profile           |
+|`account_lang`            | Default language of the User       |
+|`profile_banner_url`      | URL of Profile Banner Image        |
+|`profile_background_url`  | URL of Background Image            |
+|`profile_image_url`       | URL of Profile Icon Image          |
+
+# References

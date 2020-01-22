@@ -1,0 +1,530 @@
+---
+title: "Classifying Naughty and Nice Tweets from Twitter"
+author: "Hulya Yigit (hyigit2)"
+date: "12/11/2018"
+output:
+  pdf_document: default
+  html_document: default
+subtitle: STAT 432 - Project Proposal
+---
+
+```{r set-options, include = FALSE}
+# Sets default chunk options
+knitr::opts_chunk$set(
+  # Figures/Images will be centered
+  fig.align = "center", 
+  # Code will not be displayed unless `echo = TRUE` is set for a chunk
+  echo = FALSE,
+  # Messages are suppressed
+  message = FALSE,
+  # Warnings are suppressed
+  warning = FALSE
+)
+```
+
+```{r install-and-load-packages, include = FALSE}
+# All packages needed should be loaded in this chunk
+pkg_list = c('knitr', 'twitteR', 'syuzhet', 'tm', 'stats', 'e1071', 'dplyr', 'SnowballC',"randomForest", "nnet",
+             'magrittr', "caret", "bookdown", "rtweet", "text2vec", "tidytext", "stringr", "wordcloud", "plotly", "rpart","gridExtra")
+# Determine what packages are NOT installed already.
+to_install_pkgs = pkg_list[!(pkg_list %in% installed.packages()[,"Package"])]
+# Install the missing packages
+if(length(to_install_pkgs)) {
+  install.packages(to_install_pkgs, repos = "https://cloud.r-project.org")
+}
+# Load all packages
+sapply(pkg_list, require, character.only = TRUE)
+```
+
+# Project title
+
+Classifying Naughty and Nice Tweets from Twitter
+
+# Group Member Info
+
+Hulya Duygu Yigit (hyigit2)
+
+# Introduction & Literature Review
+
+## Data Overview
+In the _R_ programming language by @R:2018, the Twitter Data API [@TwitterAPI]
+can be accessed using the `rtweet` package by @CRAN:rtweet. To fulfill the
+project's goal of classifying tweets as being positive or negative, data was
+obtained by searching for politically charged tweets that contained the words
+"clinton" or "trump". The assembled data set then has 
+with a mixture of original and retweet information across .
+The first five tweets captured are shown in Appendix Table \@ref(tab:preview-tweets)
+and the accompanying description of each variable can be found in the subsequent
+Data Codebook section \@ref(codebook-info).
+
+## Data Introduction & Scientific Goals
+
+Twitter has a notable problem with users writing mean-spirited messages in the
+form of a "tweet." In 2015, Twitter introduced a "quality filter" that sought 
+to suppress posts that were of "lower-quality content" as described by
+@WP:QualityFilter:2015. The conversation has further progressed to require more
+serious intervention on establishing a healthy medium for conversation described
+in depth by Twitter employees @Twitter:HealthyConversation:2018. As the season
+of well-tidings is upon us, we seek to provide a classification of textual
+content provided by the tweets based on whether the sentiment conveyed by tweet 
+is positive or negative. 
+
+We searched for 18000 tweets(this limit was put so that it doesn't take too much time to fetch the data(twitter API call limit) and we can perform analysis on the local system) that contains the words Hillary, Clinton and Trump.
+Our final dataset is a set of tweets that contains the above mentioned keywords.
+
+Sentiment analysis is a major branch of Natural Language Processing(NLP) these days.
+The usual classification techniques can be used for sentiment classification,
+only difference being that we can't directly apply it on words. We convert our
+sentences (in our case, each tweet is a sentence and the collection of all the tweets can be 
+considered a document)into a Document Term Matrix (DTM) before applying any technique we have learnt.
+
+
+
+```{r create-access-token, include = FALSE, eval = FALSE}
+# Generate an access token to retrieve trump/clinton tweets.
+create_token(
+    app = "trump_client_ag",
+    consumer_key = "mmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+    consumer_secret = "mmmmmmmmmmmmmmmmmmmm",
+    access_token = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+    access_secret = "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm")
+```
+
+```{r search-tweet-info, eval = FALSE}
+# Obtain the tweets that match either "Hillary", "Clinton", or "Trump".
+my_tweets = search_tweets(
+  "Hillary|Clinton|Trump", n = 18000, include_rts = FALSE
+)
+
+# Save tweet information to disk.
+saveRDS(my_tweets, file = "data/collected_tweets.rds")
+```
+
+Some existing Analysis on this includes:
+
+- Twitter Sentiment Analysis Using R:
+This website introduces to sentiment analysis using "Syuzhet" library which has inbuilt functions for sentiment classification. We can firectly apply these functions on text. (http://dataaspirant.com/2018/03/22/twitter-sentiment-analysis-using-r/)
+
+
+- Clustering on Donald Trump Tweets: 
+This website introduces to basic concepts of NLP(creating a DTM after tokenizing and finding the term frequency) and uses clustering to classify it into positive or negative sentiments.
+(https://github.com/susanli2016/Data-Analysis-with-R/blob/master/Donald-Trump-Tweets.Rmd)
+
+
+# Proposed Analysis
+
+##Sentiment Classification
+
+There are 2 ways to do sentiment classification:
+
+**1. Unsupervised Learning**
+
+Clustering is a method used when we don't have the training labels (Unsupervised learning), which is generally true for twitter data.
+
+We have used k-means clustering on our DTM to cluster the tweets into positive and negative sentiments.
+
+**2. Supervised Learning**
+
+Machine Learning techniques like Decision trees, Random Forest, SVM, etc. can be used to classify the tweets data based on the sentiments. 
+
+But to use these techniques, we need to have the training labels(sentiments) for a set of tweets as they learn from already existing data and labels. To use these techniques on the tweets we fetched, data was classified into positive and negative sentiment using "Syuzhet" package.  
+
+## Natural Language Processing (NLP)
+
+Applying mathematical algorithms to (potentially very large) character data sets is a challenging prospect. Thus with some methods, we need to make it numerical.
+
+**Tokenization:** Given a sentence and a defined document unit, tokenization is the task of chopping it up into pieces, called tokens, perhaps at the same time throwing away certain characters, such as punctuation. What this means is basically that each unique word in the text can be assumed a token. This will benefit later on to calculate the frequencies of each token and convert character data sets to numerical data sets. 
+
+**Bag of Words:** The question we have to answer is that how can we classify documents made up of words when machine learning algorithms work on numerical data. We do this by building a numerical summary of a data set that our algorithms can manipulate. An approach that we commonly use is to identify all possible words in the documents and track the frequencies that each words occurs in data set. But, as it is expected going through this project will give us a very sparse matrix since we have so many tokens, the colums in the matrix, and not all tweets,which are the rows, include all of them at the same time. 
+This concept, where we tokenizes documents to build these sparse matrices is called bag of words. In the bag of words model, each tweet can be mapped into a vector, where the individual elements correspond to the number of times the words appears in the document.
+
+**Stop Words:** Stop words are common across text documents, their presence in a classification process likely to simply increase the noise, and to give no information in the case of classifcation. As a result, by removing stop words, we likely will produce more accurate classification.
+Example of stopwords is: words like 'to', 'for', 'this'
+
+**TF-IDF:** Term frequency–Inverse document frequency. It is the normalized version of our matrix. Simply, we take the count of token occurrence and normalize it over the frequency with which the token occurs in all documents. In this manner, we give higher weight in the classification process to tokens that are more strongly tied to a particular label.
+
+**NDSI:** Normalized Difference Sentiment Index is the difference of frequencies normalized by their sum. NDSI values are between 0 and 1 with higher values indicating greater correlation with sentiment. This can give us addtional information in terms of classification process. 
+Moreover, after this process to increase the classification accurcy we can clean the data set more. One way to do it is we can penalize infrequent words. If the word "election" occurs just once in a positive review and not at all in any of the negative reviews, we end up with a NDSI value of 1 even though we know it’s not a great predictor of sentiment. To prevent this, we add a smoothing term that penalizes infrequent words.
+
+```{r load-data, include= F}
+# Read in previously acquired tweets.
+obtained_tweets <- readRDS("collected_tweets.rds")
+obtained_tweets1 <- obtained_tweets
+accry = function(pred, label){
+  sum(diag(table(pred,label)))/sum(table(pred,label)) #accuracy rate
+
+}
+```
+
+
+
+```{r tweet-summary, cache = TRUE, include=FALSE}
+# Function based on advice given at: 
+# https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
+process_tweet_text = function(tweet) {
+  gsub("&amp", "", tweet) %>%
+    gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", .) %>%
+    gsub("@\\w+", "", .) %>%
+    gsub("[[:punct:]]", "", .) %>%
+    gsub("[[:digit:]]", "", .) %>%
+    gsub("http\\w+", "", .) %>%
+    gsub("[ \t]{2,}", "", .) %>%
+    gsub("^\\s+|\\s+$", "", .) %>%
+    gsub("\\s*<U\\+\\w+>\\s*", "", .) %>% # Remove unicode...
+    iconv("latin1", "ASCII", "") # Convert whatever unicode symbols remain.
+}
+
+# Clean the tweets
+idx = c('text', 'quoted_text', 'retweet_text', 
+        'description', 'quoted_description', 'retweet_description')
+
+
+obtained_tweets[, idx] = lapply(obtained_tweets[, idx],
+                                FUN = process_tweet_text)
+tweets.df2 = obtained_tweets$text
+word.df <- unlist(as.vector(tweets.df2))
+# get the emotion score for each of the tweets. 
+# emotion.df <- get_nrc_sentiment(word.df)
+#get the sentiment for each of the tweets
+sent.value <- get_sentiment(word.df) # getting the sentiments using syuzhet library
+#Extract the most positive tweet
+most.positive <- word.df[sent.value == max(sent.value)]
+
+#Extract the most negative tweet
+most.negative <- word.df[sent.value <= min(sent.value)] 
+ 
+#label them as Naughty and Nice based on total sentiment scores
+labels.sentim.pack = ifelse(sent.value<0, 1,2) #1 negative 2 pos
+```
+
+
+```{r DTM, include= FALSE}
+## Creating the text Corpus and DTM for further analysis
+all.data <- cbind.data.frame(word.df, labels = labels.sentim.pack)
+myCorpus <- Corpus(VectorSource(all.data$word.df))
+tf <- DocumentTermMatrix(myCorpus, control = list(stopwords = stopwords("english"), removeNumbers = T))
+#creating DTM by removing the stopwords and numbers
+tf <- removeSparseTerms(tf, .999) #removing the terms that don't occur in at least 0.1% of the tweets
+tf <- as.matrix(tf) #conversion to readable matrix
+word.freq <- colSums(tf)
+word.freq <- data.frame(word = names(word.freq), freq = word.freq)
+rownames(word.freq) <- NULL
+all.data$word.df <- as.character(all.data$word.df)
+word.freq1 <- word.freq
+```
+
+## Clustering
+
+We already know that we have to classify the sentiments in 2, positive and negative. Therefore, the number of clusters will be just 2. We are doing clustering analysis just to check what percentage of labels generated from Unsupervised Model match with the labels generated from the inbuilt library.
+
+```{r, echo=TRUE}
+##################Clustering####################
+fit.kmeans_tdm = kmeans(tf, centers = 2, nstart = 20)
+# fit.kmeans_tdm$betweenss
+labels.sentim.kmeans_tdm = as.factor(fit.kmeans_tdm$cluster)
+labels.sentim.kmeans_tdm <- ifelse(labels.sentim.kmeans_tdm==1, 2, 1) 
+
+acc <- accry(labels.sentim.kmeans_tdm, labels.sentim.pack)
+
+print(1-acc)
+```
+
+The clustering analysis was done without much pre-processing as we just wanted to compare what percentage of the labels obtained from unsupervised learning (i.e. no prior information available on labels) are matching with the labels obtained from the package. ~60% of the total labels were the same. One possible reason that the k-means clustering is giving relatively lower matched might be because we have so many tokens that some of them are giving not much information or being sparse. Taking into acount them might hurt our classification. 
+
+For the supervised classification analysis, we will use the labels obtained from the package.
+
+## Methodolgy
+
+The pre-processing of the text was done by removing the words that won't be much usefuls as tokens. We removed things like hyperlinks, punctuations, digits, unicode symbols & characters, words like RT (which means retweets).
+
+After removing the above, we subset our data set by choosing the columns text, quoted_text, retweet_text, description, quoted_description, retweet_description. Other factors like username, number of friends, etc. are no use for us in this analysis.
+
+We made use of 'get_sentiment' funtion from 'syuzhet' library to create the labels for the tweet data set available with us. This was done so that we get a labelled data set that was further used to train our model using the supervised learning techniques.
+
+To apply Statstical Analysis techniques in our data set, we started by creating text Corpus and using this text Corpus to create a Document Term Matrix. We also removed the stopwords before creating the document term matrix. After creating DTM, we removed words occur very infrequently (kept words that occur in at least 0.1% of tweets) i.e the sparse terms and cast them as a dense matrix for easier analysis.
+
+Next we find the top tokens occuring in negative tweets and positive tweets separately. This helps us identify top keywords occuring in the tweets. This is also used to calculate NDSI(Normalized Difference Sentiment Index) next. We created TF-IDF Document Term Matrix keeping only the top 'n' terms obtained based on their NDSI value(higher the better as this can be assumed to be the corelation of a word with the sentiment). We have calculated the NDSI values and created the TF-IDF matrix on our own, i.e. we didn't use in-built R packages for this. This was done in order to create better understanding of these techniques.
+
+The final matrix/dataframe created after TF-IDF was used in classification using Clustering analysis as well as for the classification using the Supervised Machine Learning methods.
+
+
+```{r furhercleaning, include=FALSE}
+#########Checking top negative and positive words(to be used in calculation of NDSI)##########
+word.freq <- function(document.vector, sparsity = .999)
+{
+  #construct corpus
+  temp.corpus <- Corpus(VectorSource(document.vector))
+  #construct tf DTM matrix
+  temp.tf <- DocumentTermMatrix(temp.corpus,
+                                control = list(stopwords = stopwords("english"), removeNumbers = T))
+  
+  temp.tf <- removeSparseTerms(temp.tf, sparsity) #remove sparse terms
+  temp.tf <- as.matrix(temp.tf)
+  #construct word frequency df
+  freq.df <- colSums(temp.tf)
+  freq.df <- data.frame(word = names(freq.df), freq = freq.df)
+  rownames(freq.df) <- NULL
+  return(freq.df)
+}
+word.freq.pos <- word.freq(all.data$word.df[all.data$labels == 2])#word frequenct in positive tweets 
+word.freq.neg <- word.freq(all.data$word.df[all.data$labels == 1])#word frequenct in negative tweets 
+
+word.freq.pos <- word.freq.pos[order(-word.freq.pos$freq),]
+word.freq.neg <- word.freq.neg[order(-word.freq.neg$freq),]
+```
+
+
+
+```{r NDSI,include=FALSE, echo=TRUE}
+##########################################################################
+freq.all <- merge(word.freq.neg, word.freq.pos, by = "word", all = T) #merging both
+# clean up
+freq.all$freq.x[is.na(freq.all$freq.x)] <- 0
+freq.all$freq.y[is.na(freq.all$freq.y)] <- 0
+freq.all$diff <- abs(freq.all$freq.x - freq.all$freq.y)# compute difference
+alpha <- 2**7# smoothing term
+
+# Calculation of NDSI
+ #NDSI formula
+freq.all$ndsi <- abs(freq.all$freq.x - freq.all$freq.y)/(freq.all$freq.x + freq.all$freq.y + 2*alpha)
+##top terms that helps us to identify between positive and negaative tweets
+head(freq.all[order(-freq.all$ndsi), ]) 
+freq.all <- freq.all[order(-freq.all$ndsi), ]
+freq.all$word <- as.character(freq.all$word)
+```
+
+
+```{r tfidf, include=FALSE, echo=TRUE}
+############################TF-IDF##############################
+num.features <- length(freq.all$word)
+
+tf <- t(apply(t(all.data$word.df), 2, function(x) str_count(x, freq.all$word[1:500]))) #build the tf matrix using only top 500 important terms based on ndsi score
+
+idf <- log(length(all.data$word.df) / colSums(sign(tf)))# idf vector
+
+idf[is.infinite(idf)] <- 0
+
+tf.idf <- as.data.frame(t(apply(tf, 1, function(x) x * idf)))# tf-idf matrix
+colnames(tf.idf) <- freq.all$word[1:500]
+```
+
+
+# Summary statistics and data visualization
+In the present analysis, tweets is used as the data set, and originally they are stored as character vectors. To be able to conduct the analysis, we should convert the data as a numerical representation.Moreover, during the analysis some of the components inside the sentences will not provide us any information such as punctuation, or uni codes. Thus, we need to do some basic pre-processing before going thorough the analysis. Moreover, under this project we will conduct some supervised learning methods thus we need to create labels for each tweets either positive and negative. The table below will give some insight about the raw data (i.e., before pre-progressing) and the data after the prepossessing with the assigned clusters after the sentiment analysis.  
+
+```{r rawdata }
+aa = obtained_tweets1[c(1,3,11,12,13),"text"]
+names(aa) ="TWEETS"
+ aa %>%
+  knitr::kable(caption = "Example of Five Tweets Before Pre-progressing",  booktabs = TRUE, longtable = TRUE) 
+rm(obtained_tweets1)
+```
+
+
+```{r tweetsaftercleaning, echo = FALSE}
+ab = all.data[c(1,3,11,12,13),]
+names(ab) = c("TWEETS", "LABELS")
+ab %>%
+  knitr::kable(caption = "Example of Five Tweets After Pre-progressing with Labels",  booktabs = TRUE, longtable = TRUE) 
+```
+
+The number of tweets with positive and negative sentiments respectively are shown below:
+
+```{r, include=TRUE}
+df <- t(as.data.frame(summary(as.factor(labels.sentim.pack))))
+row.names(df) <- NULL
+df <- as.data.frame(df)
+names(df)[c(1,2)] <- c("negative", "positive")
+df %>%
+  knitr::kable(caption = "Total number positive and negative Tweets",  booktabs = TRUE, longtable = TRUE)
+```
+
+After this process, each word will be considered tokens, and the frequecies of how many time they occur among all the tweets set is recording. The table below demostrates the most 10 frequents words "tokens".  
+
+```{r}
+word.freq1[order(-word.freq1$freq),][1:10,] %>%
+  knitr::kable(caption = "Most Frequent Tokens",  booktabs = TRUE, longtable = TRUE)
+```
+
+Based on the table above, the most frequent words are names of that we searched for the tweets (i.e., Hillary, Trumps, Clinton). And Ivanka, Comey etc. follows them  with a sharp decrease on frequencies. We will see that the top 3 words are not of importance in the analysis based on NDSI scores.
+
+
+
+The most commonly occuring words in Positive and Negative tweets are shown below in form of word clouds.
+
+```{r wordclouds1}
+###############################Word Clouds###############################
+par(mfrow=c(1,2))
+wordcloud(words = word.freq.pos$word[c(4:length(word.freq.pos$freq))], freq = word.freq.pos$freq[c(4:length(word.freq.pos$freq))], min.freq = 1,
+          max.words=100, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+wordcloud(words = word.freq.neg$word[c(4:length(word.freq.pos$freq))], freq = word.freq.neg$freq[c(4:length(word.freq.pos$freq))], min.freq = 1,
+          max.words=100, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+As can be seen from the above 2 figures, the top terms that commonly occur in both positive and negative tweets are similar. Hence we apply NDSI and again find the top important(not necessarily the most frequent) terms.
+
+```{r wordclouds2, eval=T}
+###############################Word Clouds NDSI###############################
+wordcloud(words = freq.all$word, freq = freq.all$ndsi, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+The important terms coming from NDSI scores shown above seems more relevant in determing the tweets sentiment.
+
+
+# Sentiment Classification
+
+```{r dataset_clasification, include=FALSE}
+set.seed(7267166)
+tf.idf$labels = as.factor(labels.sentim.pack)
+trainIndex = sample(1:nrow(tf.idf), size = nrow(tf.idf)/3)
+train=tf.idf[-trainIndex, ]
+test=tf.idf[trainIndex, ]
+train$labels <- as.factor(train$labels)
+test$labels <- as.factor(test$labels)
+```
+
+## Decision Trees
+
+```{r trees, include=TRUE, echo=TRUE}
+###############trees####################
+tree = rpart(labels~.,  method = "class", data = train) 
+predicted_values_tree <- predict(tree, test)
+predicted_values_tree <- ifelse(predicted_values_tree[,1] > 0.5, 1,2)
+#table(predicted_values_tree,test$labels)
+acc_tree <- accry(predicted_values_tree,test$labels) # accuracy rate
+```
+
+## Logistic Regression
+
+```{r logistic, include=TRUE, echo=T, eval=FALSE}
+model_glm = glm(labels~., data=train, family = "binomial")
+# saveRDS(model_glm, "glm_model.rds")
+# model_glm = readRDS("glm_model.rds")
+predicted_values_logistic= predict(model_glm, test)
+predicted_values_logistic = ifelse(predicted_values_logistic > 0, 2,1)
+acc_logit <- accry(predicted_values_logistic,test$labels) # accuracy rate
+```
+
+```{r}
+model_glm = readRDS("glm_model.rds")
+predicted_values_logistic= predict(model_glm, test)
+predicted_values_logistic = ifelse(predicted_values_logistic > 0, 2,1)
+acc_logit <- accry(predicted_values_logistic,test$labels) # accuracy rate
+```
+
+```{r}
+train <- as.data.frame(train)
+names(train)[which(names(train)=='else')] = "els"
+names(test)[which(names(test)=='else')] = "els"
+```
+
+## Neural Net Model
+
+```{r nnet, include=TRUE, eval=FALSE, echo=TRUE}
+reviews.nnet = nnet(labels~., data=train, size=1, maxit=500)
+# saveRDS(reviews.nnet, "nnet_model.rds")
+# reviews.nnet = readRDS("nnet_model.rds")
+prob.nnet= predict(reviews.nnet, test)
+prob.nnet = ifelse(prob.nnet > 0.5, 2,1)
+acc_nnet <- accry(prob.nnet,test$labels) # accuracy rate
+```
+
+
+```{r}
+reviews.nnet = readRDS("nnet_model.rds")
+prob.nnet= predict(reviews.nnet, test)
+prob.nnet = ifelse(prob.nnet > 0.5, 2,1)
+acc_nnet <- accry(prob.nnet,test$labels) # accuracy rate
+```
+
+## Random Forest Model
+
+
+```{r rf,  include=TRUE, eval=FALSE, echo=TRUE}
+rf_model2  <- randomForest(labels ~ .,
+                         data = train,
+                         mtry = 20,
+                         do.trace = TRUE,
+                         ntree = 200,
+                         importance=TRUE,
+                         localImp=TRUE,
+                         proximity=FALSE)
+# saveRDS(rf_model2, "rf_model.rds")
+# rf_model <- readRDS("rf.rds")
+# predict and write output
+ndsi.pred <- predict(rf_model, newdata = test)
+acc_rf <- accry(ndsi.pred,test$labels) # accuracy rate
+imp <- cbind.data.frame("AccuracyDecrease" = importance(rf_model)[,3][order(-importance(rf_model)[,3])][c(1:10)])
+imp$names <- row.names(imp)
+
+```
+
+```{r}
+rf_model <- readRDS("rf.rds")
+# predict and write output
+ndsi.pred <- predict(rf_model, newdata = test)
+acc_rf <- accry(ndsi.pred,test$labels) # accuracy rate
+imp <- cbind.data.frame("AccuracyDecrease" = importance(rf_model)[,3][order(-importance(rf_model)[,3])][c(1:10)])
+imp$names <- row.names(imp)
+```
+
+
+```{r importance}
+plot_ly(imp, x= ~names, y = ~AccuracyDecrease, type = "bar")
+```
+
+The variable name "else" which was a tokan originally but it is also a function in R. Hence, it was changed to 'els' as random forest was throwing an error.
+
+The variable importance plot derived from Random Forest shows that 'ass' was the most important word that was used to classify the sentiments. 'tried', 'por', 'ally' 
+
+##Confusion Matrix RF vs NeuralNet
+
+```{r}
+aaa = table(ndsi.pred,test$labels)
+aaa %>%
+  knitr::kable(caption = "Confusion matrix RF",  booktabs = TRUE, longtable = TRUE) 
+
+```
+
+```{r}
+aaa = table(prob.nnet,test$labels)
+aaa %>%
+  knitr::kable(caption = "Confusion matrix NeuralNet",  booktabs = TRUE, longtable = TRUE) 
+
+```
+
+As can be seen from the confusion matrix, the results given by RF are better than Nnet. Error rate for positive tweets is higher in case of Nnet, whereas the classification accrucy is ballanced in RF.
+
+# Conclusion and discussion
+
+The major goal of this project was to get introduced to the basic concepts of the Natural Language Processing and use the techniques we learned in the class on the text data. As we can see from the below table of classification accuracies, Neural Network didn't give the best accuracy as was being expected as we didn't tune the neural net model. Random Forest gave the accuracy of ~77% as we tuned the RF model. We tried multiple values of mtry and ntree but only the best case is shown. Also the run time required for Random Forest was really high. <br>
+
+```{r}
+accuracies <- cbind.data.frame("Decision Trees" = acc_tree,"Logistic Regression" = acc_logit,
+                               "Neural Network" = acc_nnet, "Random Forest" = acc_rf)
+knitr::kable(accuracies)
+```
+
+Logistic Regression also provides good accuracy of ~75% but the limitations with logistic regression is the sparsity of data. It performs better if the data is not this sparse.<br>
+
+Decision Trees gives us the lowest performance accuracy i.i. ~65%. The possible reason is the huge number of variables that we are using to create the model and sparsity.<br>
+
+The Random Forest Model performs better than the decision tree as it uses the ensemble of multiple trees and optimizes using the Out of Bag error to find out the optimal solution. Also, we are able to find out the variable importance by looking at the effect of removal each variable has.
+
+We tried out Neural Net model as it is quite famous for the accuracy and we covered it at the end. Even without optimizations, the model gave good enough accuracy when compared to the simple decision tree.
+
+We also fit a logistic regression model and it had a comparable accuracy to the simple Neural Net model. The only limitation with the Logistic Regression model is the sparsity of the training data set matrix. Some of the Beta values might be skewed towards more frequently occurring words.
+
+Naive Bayes’ mode l is another model we fit, as to is quite commonly used method in email text classification, but didn’t report it here as the accuracy was pretty bad. The possible reason for this is the common occurrences of many of the words in both positive and negative tweets(despite sorting it by NDSI) and hence no real differentiation in the probabilities
+
+In the future, we can also use the bigrams and trigrams in the bag of words for the modelling purposes. We didn't do it because of my system limitations (the bigrams and trigrams increase the number of features by a lot).
+
+Major Challenges faced during the project was to understand how the numerical analysis of text data is done and getting introduced to concepts like tokenization, tf-idf, vectorization, etc. Pre-processing the text data is always a challenge and I got to learn a lot from this project.
+
+Due to Computational limitations, we limited our tweets to a decent number and didn't try variations in more computation heavy methods like Neural Net. Also, to avoid high compilation time of RMD file, we saved the model results as RDS files and reused it.
+
